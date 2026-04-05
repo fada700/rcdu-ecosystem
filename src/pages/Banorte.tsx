@@ -1,16 +1,72 @@
+import { useState } from "react";
 import { motion } from "framer-motion";
-import { CreditCard, Send, ArrowDownLeft, ArrowUpRight, History, Wallet, Loader2 } from "lucide-react";
+import { CreditCard, Send, ArrowDownLeft, ArrowUpRight, History, Wallet, Loader2, CheckCircle } from "lucide-react";
 import { useCitizen, useTransactions, formatMoney } from "@/hooks/useData";
 import { useAuth } from "@/contexts/AuthContext";
+import { supabase } from "@/integrations/supabase/client";
+import { useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
 
 export default function Banorte() {
   const { user } = useAuth();
   const { data: citizen, isLoading } = useCitizen();
   const { data: transactions } = useTransactions();
+  const queryClient = useQueryClient();
+
+  const [recipient, setRecipient] = useState("");
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [transferring, setTransferring] = useState(false);
 
   const displayName = citizen?.roblox_nickname || user?.user_metadata?.discord_username || "Usuario";
   const balance = citizen?.balance ?? 0;
   const folio = citizen?.folio_dni || "—";
+
+  const handleTransfer = async () => {
+    if (!recipient.trim()) {
+      toast.error("Ingresa el destinatario");
+      return;
+    }
+    const parsedAmount = parseInt(amount, 10);
+    if (!parsedAmount || parsedAmount <= 0) {
+      toast.error("Ingresa un monto válido");
+      return;
+    }
+    if (parsedAmount > balance) {
+      toast.error("Saldo insuficiente");
+      return;
+    }
+
+    setTransferring(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("transfer", {
+        body: {
+          recipient_query: recipient.trim(),
+          amount: parsedAmount,
+          description: description.trim() || undefined,
+        },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      toast.success(
+        `Transferencia exitosa a ${data.recipient_name}`,
+        { icon: <CheckCircle className="h-4 w-4 text-accent" /> }
+      );
+      setRecipient("");
+      setAmount("");
+      setDescription("");
+
+      // Refresh data
+      queryClient.invalidateQueries({ queryKey: ["citizen"] });
+      queryClient.invalidateQueries({ queryKey: ["transactions"] });
+    } catch (err: any) {
+      toast.error(err.message || "Error al transferir");
+    } finally {
+      setTransferring(false);
+    }
+  };
 
   if (isLoading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="h-8 w-8 animate-spin text-primary" /></div>;
@@ -65,16 +121,37 @@ export default function Banorte() {
         >
           <h2 className="text-sm font-bold text-foreground">Nueva Transferencia</h2>
           <input
+            value={recipient}
+            onChange={e => setRecipient(e.target.value)}
             placeholder="Usuario o DNI Folio destinatario"
             className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
           />
           <input
+            value={amount}
+            onChange={e => setAmount(e.target.value.replace(/\D/g, ""))}
             placeholder="Monto"
-            type="number"
+            type="text"
+            inputMode="numeric"
             className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
           />
-          <button className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/90 transition-colors flex items-center justify-center gap-2">
-            <Send className="h-4 w-4" /> Transferir ahora
+          <input
+            value={description}
+            onChange={e => setDescription(e.target.value)}
+            placeholder="Descripción (opcional)"
+            className="w-full rounded-lg border border-border bg-surface-2 px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition-colors"
+          />
+          {amount && parseInt(amount) > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Enviar <span className="font-semibold text-accent">{formatMoney(parseInt(amount))}</span> · Saldo restante: <span className="font-semibold">{formatMoney(Math.max(0, balance - parseInt(amount)))}</span>
+            </p>
+          )}
+          <button
+            onClick={handleTransfer}
+            disabled={transferring || !recipient || !amount}
+            className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {transferring ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            {transferring ? "Transfiriendo..." : "Transferir ahora"}
           </button>
         </motion.div>
       </div>
