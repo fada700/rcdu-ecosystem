@@ -1,6 +1,8 @@
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
+import { useCitizen } from "@/hooks/useData";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   LayoutDashboard,
   Bell,
@@ -14,13 +16,13 @@ import {
 const navItems = [
   { label: "PRINCIPAL", items: [
     { icon: LayoutDashboard, label: "Dashboard", path: "/" },
-    { icon: Bell, label: "Notificaciones", path: "/notificaciones", badge: 1 },
+    { icon: Bell, label: "Notificaciones", path: "/notificaciones" },
   ]},
   { label: "IDENTIDAD", items: [
     { icon: IdCard, label: "Mi Cédula", path: "/cedula" },
   ]},
   { label: "ECONOMÍA", items: [
-    { icon: CreditCard, label: "VersePay", path: "/versepay" },
+    { icon: CreditCard, label: "Banorte", path: "/banorte" },
   ]},
   { label: "CIUDAD", items: [
     { icon: Store, label: "Store", path: "/store" },
@@ -32,26 +34,33 @@ const navItems = [
 export default function AppSidebar() {
   const location = useLocation();
   const navigate = useNavigate();
+  const { data: citizen } = useCitizen();
+  const { user } = useAuth();
+
+  const displayName = citizen?.roblox_nickname || user?.user_metadata?.discord_username || "Usuario";
+  const initials = displayName.slice(0, 2).toUpperCase();
 
   return (
     <aside className="fixed left-0 top-0 z-40 flex h-screen w-60 flex-col border-r border-border bg-sidebar">
-      {/* User profile */}
       <div className="border-b border-border p-4">
         <div className="flex items-center gap-3">
           <div className="relative">
-            <div className="h-10 w-10 rounded-full bg-surface-3 flex items-center justify-center text-sm font-bold text-foreground">
-              RC
-            </div>
+            {citizen?.avatar_url ? (
+              <img src={citizen.avatar_url} alt="" className="h-10 w-10 rounded-full object-cover" />
+            ) : (
+              <div className="h-10 w-10 rounded-full bg-surface-3 flex items-center justify-center text-sm font-bold text-foreground">
+                {initials}
+              </div>
+            )}
             <span className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-sidebar bg-accent" />
           </div>
           <div>
-            <p className="text-sm font-semibold text-foreground">eqox_</p>
+            <p className="text-sm font-semibold text-foreground">{displayName}</p>
             <p className="text-xs text-accent">● En línea</p>
           </div>
         </div>
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 overflow-y-auto p-3 space-y-5">
         {navItems.map((group) => (
           <div key={group.label}>
@@ -80,11 +89,6 @@ export default function AppSidebar() {
                     )}
                     <item.icon className="relative z-10 h-5 w-5" />
                     <span className="relative z-10">{item.label}</span>
-                    {item.badge && (
-                      <span className="relative z-10 ml-auto flex h-5 w-5 items-center justify-center rounded-full bg-destructive text-[10px] font-bold text-destructive-foreground">
-                        {item.badge}
-                      </span>
-                    )}
                   </button>
                 );
               })}

@@ -1,11 +1,27 @@
 import { Search, Bell, Power } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { useCitizen } from "@/hooks/useData";
+import { useNavigate } from "react-router-dom";
 
 export default function TopBar() {
+  const { user, signOut } = useAuth();
+  const { data: citizen } = useCitizen();
+  const navigate = useNavigate();
+
+  const displayName = citizen?.roblox_nickname || user?.user_metadata?.discord_username || "Usuario";
+  const folio = citizen?.folio_dni || "—";
+  const initials = displayName.slice(0, 2).toUpperCase();
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate("/login");
+  };
+
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background/80 backdrop-blur-xl px-6">
       <div className="flex items-center gap-2">
         <span className="h-2 w-2 rounded-full bg-accent animate-pulse-glow" />
-        <span className="text-sm font-bold text-foreground">ChileVerse</span>
+        <span className="text-sm font-bold text-foreground">RCDU</span>
         <span className="text-xs text-muted-foreground">| Portal de USUARIO</span>
       </div>
 
@@ -19,20 +35,29 @@ export default function TopBar() {
       </div>
 
       <div className="flex items-center gap-3">
-        <button className="relative rounded-lg p-2 text-muted-foreground hover:bg-surface-3 hover:text-foreground transition-colors">
+        <button
+          onClick={() => navigate("/notificaciones")}
+          className="relative rounded-lg p-2 text-muted-foreground hover:bg-surface-3 hover:text-foreground transition-colors"
+        >
           <Bell className="h-5 w-5" />
-          <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-warning" />
         </button>
         <div className="flex items-center gap-2">
-          <div className="h-8 w-8 rounded-full bg-surface-3 flex items-center justify-center text-xs font-bold text-foreground">
-            RC
-          </div>
+          {citizen?.avatar_url ? (
+            <img src={citizen.avatar_url} alt="" className="h-8 w-8 rounded-full object-cover" />
+          ) : (
+            <div className="h-8 w-8 rounded-full bg-surface-3 flex items-center justify-center text-xs font-bold text-foreground">
+              {initials}
+            </div>
+          )}
           <div className="hidden md:block">
-            <p className="text-xs font-semibold text-foreground">eqox_</p>
-            <p className="text-[10px] font-mono text-muted-foreground">17313023-6</p>
+            <p className="text-xs font-semibold text-foreground">{displayName}</p>
+            <p className="text-[10px] font-mono text-muted-foreground">{folio}</p>
           </div>
         </div>
-        <button className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors">
+        <button
+          onClick={handleSignOut}
+          className="rounded-lg p-2 text-muted-foreground hover:bg-destructive/10 hover:text-destructive transition-colors"
+        >
           <Power className="h-5 w-5" />
         </button>
       </div>
