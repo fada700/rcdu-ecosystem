@@ -6,7 +6,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import MainLayout from "./components/MainLayout";
 import Dashboard from "./pages/Dashboard";
-import VersePay from "./pages/VersePay";
+import Banorte from "./pages/Banorte";
 import MiCedula from "./pages/MiCedula";
 import StorePage from "./pages/StorePage";
 import Notificaciones from "./pages/Notificaciones";
@@ -47,7 +47,7 @@ function AppRoutes() {
         }
       >
         <Route path="/" element={<Dashboard />} />
-        <Route path="/versepay" element={<VersePay />} />
+        <Route path="/banorte" element={<Banorte />} />
         <Route path="/cedula" element={<MiCedula />} />
         <Route path="/store" element={<StorePage />} />
         <Route path="/notificaciones" element={<Notificaciones />} />
