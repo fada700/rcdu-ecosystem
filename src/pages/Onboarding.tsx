@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { useAuth } from "@/contexts/AuthContext";
 import { supabase } from "@/integrations/supabase/client";
-import { Shield, CheckCircle, Loader2, User } from "lucide-react";
+import { Shield, CheckCircle, Loader2, User, AlertCircle } from "lucide-react";
 
 type Step = "roblox" | "verify" | "dni";
 
@@ -12,12 +12,8 @@ export default function Onboarding() {
   const navigate = useNavigate();
   const [step, setStep] = useState<Step>("roblox");
   const [robloxNickname, setRobloxNickname] = useState("");
-  const [verificationCode] = useState(() => {
-    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-    let code = "RC-";
-    for (let i = 0; i < 6; i++) code += chars[Math.floor(Math.random() * chars.length)];
-    return code + "-DU";
-  });
+  const [robloxId, setRobloxId] = useState<number | null>(null);
+  const [verificationCode, setVerificationCode] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
@@ -28,6 +24,13 @@ export default function Onboarding() {
   const [fechaNacimiento, setFechaNacimiento] = useState("");
   const [nacionalidad, setNacionalidad] = useState("Chilena");
   const [genero, setGenero] = useState("");
+
+  const generateCode = () => {
+    const digits = "0123456789";
+    let code = "RC";
+    for (let i = 0; i < 4; i++) code += digits[Math.floor(Math.random() * digits.length)];
+    return code + "DU";
+  };
 
   const generateFolio = () => {
     const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -47,17 +50,53 @@ export default function Onboarding() {
     return `${num}-${dv}`;
   };
 
-  const handleVerify = () => {
+  const handleSearchRoblox = async () => {
     if (!robloxNickname.trim()) {
       setError("Ingresa tu nickname de Roblox");
       return;
     }
-    setStep("verify");
+    setLoading(true);
+    setError("");
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("roblox-verify", {
+        body: { action: "search", username: robloxNickname.trim() },
+      });
+      if (fnErr) throw fnErr;
+      if (!data.found) {
+        setError(data.error || "Usuario de Roblox no encontrado");
+        return;
+      }
+      setRobloxId(data.roblox_id);
+      setRobloxNickname(data.roblox_name);
+      const code = generateCode();
+      setVerificationCode(code);
+      setStep("verify");
+    } catch (err: any) {
+      setError(err.message || "Error al buscar usuario");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleConfirmVerification = () => {
-    // In production this would check Roblox API
-    setStep("dni");
+  const handleConfirmVerification = async () => {
+    if (!robloxId || !verificationCode) return;
+    setLoading(true);
+    setError("");
+    try {
+      const { data, error: fnErr } = await supabase.functions.invoke("roblox-verify", {
+        body: { action: "verify", user_id: robloxId, code: verificationCode },
+      });
+      if (fnErr) throw fnErr;
+      if (!data.verified) {
+        setError(data.error || "Código no encontrado en tu bio. Intenta de nuevo.");
+        return;
+      }
+      setStep("dni");
+    } catch (err: any) {
+      setError(err.message || "Error al verificar");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleCreateDNI = async () => {
@@ -84,13 +123,13 @@ export default function Onboarding() {
         rut,
         folio_dni: folio,
         roblox_nickname: robloxNickname,
+        roblox_id: robloxId?.toString() || null,
         avatar_url: discordAvatar,
         verificado: true,
         balance: 1000000,
       });
 
       if (insertError) throw insertError;
-
       navigate("/");
     } catch (err: any) {
       setError(err.message || "Error al crear DNI");
@@ -126,7 +165,8 @@ export default function Onboarding() {
         </div>
 
         {error && (
-          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-xs text-destructive">
+          <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-xs text-destructive flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 shrink-0" />
             {error}
           </div>
         )}
@@ -138,13 +178,18 @@ export default function Onboarding() {
                 <label className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">Nickname de Roblox</label>
                 <input
                   value={robloxNickname}
-                  onChange={e => setRobloxNickname(e.target.value)}
+                  onChange={e => { setRobloxNickname(e.target.value); setError(""); }}
                   placeholder="Ej: elcapitan1212"
                   className={inputClass}
                 />
               </div>
-              <button onClick={handleVerify} className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors">
-                Continuar
+              <button
+                onClick={handleSearchRoblox}
+                disabled={loading}
+                className="w-full rounded-lg bg-primary py-2.5 text-sm font-semibold text-primary-foreground hover:bg-primary/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
+                {loading ? "Buscando..." : "Continuar"}
               </button>
             </>
           )}
@@ -159,11 +204,16 @@ export default function Onboarding() {
                 <p className="text-xs text-warning">
                   1. Ve a tu perfil de Roblox<br />
                   2. Edita tu "Información Personal" (Bio)<br />
-                  3. Pega el código y guarda
+                  3. Pega el código <span className="font-mono font-bold">{verificationCode}</span> y guarda
                 </p>
               </div>
-              <button onClick={handleConfirmVerification} className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/90 transition-colors flex items-center justify-center gap-2">
-                <CheckCircle className="h-4 w-4" /> Listo, verificar
+              <button
+                onClick={handleConfirmVerification}
+                disabled={loading}
+                className="w-full rounded-lg bg-accent py-2.5 text-sm font-semibold text-accent-foreground hover:bg-accent/90 transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+              >
+                {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle className="h-4 w-4" />}
+                {loading ? "Verificando..." : "Listo, verificar"}
               </button>
             </>
           )}
