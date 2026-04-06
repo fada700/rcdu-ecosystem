@@ -129,6 +129,15 @@ serve(async (req) => {
     });
     if (txErr) throw txErr;
 
+    // Notify receiver
+    const montoFmt = `$${amount.toLocaleString("es-CL")}`;
+    await admin.from("notifications").insert({
+      citizen_id: receiver.id,
+      tipo: "transferencia",
+      titulo: `Transferencia recibida de ${sender.roblox_nickname}`,
+      mensaje: `Has recibido ${montoFmt} de ${sender.roblox_nickname}. ${desc !== `Transferencia de ${sender.roblox_nickname} a ${receiver.roblox_nickname}` ? `Razón: ${desc}` : ""}`.trim(),
+    });
+
     return new Response(
       JSON.stringify({
         success: true,
