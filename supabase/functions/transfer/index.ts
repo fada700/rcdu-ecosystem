@@ -64,7 +64,7 @@ serve(async (req) => {
     // Get sender citizen
     const { data: sender, error: senderErr } = await admin
       .from("citizens")
-      .select("id, balance, roblox_nickname")
+      .select("id, balance, roblox_nickname, avatar_url")
       .eq("user_id", user.id)
       .single();
     if (senderErr || !sender) {
