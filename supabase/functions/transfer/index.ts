@@ -130,13 +130,14 @@ serve(async (req) => {
     if (txErr) throw txErr;
 
     // Notify receiver
-    const montoFmt = `$${amount.toLocaleString("es-CL")}`;
-    await admin.from("notifications").insert({
+    const reasonText = description?.trim() ? ` Razón: ${description.trim()}` : "";
+    const { error: notifErr } = await admin.from("notifications").insert({
       citizen_id: receiver.id,
       tipo: "transferencia",
-      titulo: `Transferencia recibida de ${sender.roblox_nickname}`,
-      mensaje: `Has recibido ${montoFmt} de ${sender.roblox_nickname}. ${desc !== `Transferencia de ${sender.roblox_nickname} a ${receiver.roblox_nickname}` ? `Razón: ${desc}` : ""}`.trim(),
+      titulo: "Transferencia recibida de " + sender.roblox_nickname,
+      mensaje: "Has recibido $" + amount + " de " + sender.roblox_nickname + "." + reasonText,
     });
+    if (notifErr) console.error("Notification insert error:", notifErr);
 
     return new Response(
       JSON.stringify({
