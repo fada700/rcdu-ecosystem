@@ -64,7 +64,7 @@ serve(async (req) => {
     // Get sender citizen
     const { data: sender, error: senderErr } = await admin
       .from("citizens")
-      .select("id, balance, roblox_nickname")
+      .select("id, balance, roblox_nickname, avatar_url")
       .eq("user_id", user.id)
       .single();
     if (senderErr || !sender) {
@@ -128,6 +128,15 @@ serve(async (req) => {
       descripcion: desc,
     });
     if (txErr) throw txErr;
+
+    // Notify receiver
+    const montoFmt = `$${amount.toLocaleString("es-CL")}`;
+    await admin.from("notifications").insert({
+      citizen_id: receiver.id,
+      tipo: "transferencia",
+      titulo: `Transferencia recibida de ${sender.roblox_nickname}`,
+      mensaje: `Has recibido ${montoFmt} de ${sender.roblox_nickname}. ${desc !== `Transferencia de ${sender.roblox_nickname} a ${receiver.roblox_nickname}` ? `Razón: ${desc}` : ""}`.trim(),
+    });
 
     return new Response(
       JSON.stringify({
