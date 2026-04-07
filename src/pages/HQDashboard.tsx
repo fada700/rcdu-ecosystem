@@ -27,7 +27,7 @@ const tabs = [
   { id: "search", label: "Ciudadanos", icon: Search },
   { id: "vehicles", label: "Vehículos", icon: Car },
   { id: "fines", label: "Multas", icon: FileWarning },
-  { id: "arrests", label: "Arrestos", icon: Handcuffs },
+  { id: "arrests", label: "Arrestos", icon: Gavel },
   { id: "911", label: "911", icon: Phone },
   { id: "chat", label: "Chat", icon: MessageSquare },
   { id: "shifts", label: "Turnos", icon: Clock },
