@@ -16,6 +16,7 @@ import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
 import HQLogin from "./pages/HQLogin";
 import HQDashboard from "./pages/HQDashboard";
+import AdminPanel from "./pages/AdminPanel";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
@@ -43,6 +44,7 @@ function AppRoutes() {
       <Route path="/onboarding" element={<Onboarding />} />
       <Route path="/hq-login" element={<HQLogin />} />
       <Route path="/hq-dashboard" element={<HQDashboard />} />
+      <Route path="/admin" element={<AdminPanel />} />
       <Route
         element={
           <ProtectedRoute>
