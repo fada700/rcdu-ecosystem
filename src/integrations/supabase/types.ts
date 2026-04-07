@@ -372,6 +372,35 @@ export type Database = {
           },
         ]
       }
+      police_chat: {
+        Row: {
+          created_at: string
+          id: string
+          message: string
+          officer_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          message: string
+          officer_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          message?: string
+          officer_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "police_chat_officer_id_fkey"
+            columns: ["officer_id"]
+            isOneToOne: false
+            referencedRelation: "officers"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       properties: {
         Row: {
           created_at: string
