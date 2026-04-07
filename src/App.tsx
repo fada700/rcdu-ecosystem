@@ -41,6 +41,8 @@ function AppRoutes() {
     <Routes>
       <Route path="/login" element={<Login />} />
       <Route path="/onboarding" element={<Onboarding />} />
+      <Route path="/hq-login" element={<HQLogin />} />
+      <Route path="/hq-dashboard" element={<HQDashboard />} />
       <Route
         element={
           <ProtectedRoute>
