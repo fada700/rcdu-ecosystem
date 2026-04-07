@@ -14,6 +14,8 @@ import Emergencias from "./pages/Emergencias";
 import Inventario from "./pages/Inventario";
 import Login from "./pages/Login";
 import Onboarding from "./pages/Onboarding";
+import HQLogin from "./pages/HQLogin";
+import HQDashboard from "./pages/HQDashboard";
 import NotFound from "./pages/NotFound";
 import { Loader2 } from "lucide-react";
 
