@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Search, Car, FileWarning, Phone, MessageSquare,
   Clock, AlertTriangle, LogOut, Send, Loader2, Upload, UserCheck,
-  ChevronRight, X, Coffee, Play, Square, Users, Gavel
+  ChevronRight, X, Coffee, Play, Square, Users, Gavel, Trash2
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
