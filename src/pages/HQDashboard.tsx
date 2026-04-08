@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Shield, Search, Car, FileWarning, Phone, MessageSquare,
   Clock, AlertTriangle, LogOut, Send, Loader2, Upload, UserCheck,
-  ChevronRight, X, Coffee, Play, Square, Users, Gavel
+  ChevronRight, X, Coffee, Play, Square, Users, Gavel, Trash2
 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
@@ -40,9 +40,19 @@ export default function HQDashboard() {
   const [activeTab, setActiveTab] = useState("search");
 
   useEffect(() => {
-    const stored = sessionStorage.getItem("hq_officer");
-    if (!stored) { navigate("/hq-login"); return; }
-    setOfficer(JSON.parse(stored));
+    const init = async () => {
+      const stored = sessionStorage.getItem("hq_officer");
+      if (!stored) { navigate("/hq-login"); return; }
+      // Ensure Supabase Auth session exists (needed for RLS)
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Debes iniciar sesión con Discord primero");
+        navigate("/login");
+        return;
+      }
+      setOfficer(JSON.parse(stored));
+    };
+    init();
   }, [navigate]);
 
   const handleLogout = () => {
@@ -117,17 +127,23 @@ function CitizenSearch() {
   const [arrests, setArrests] = useState<any[]>([]);
   const [wanted, setWanted] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showDanger, setShowDanger] = useState(false);
+  const [dangerReason, setDangerReason] = useState("");
+  const [dangerPriority, setDangerPriority] = useState("media");
+  const [submittingDanger, setSubmittingDanger] = useState(false);
 
   const search = async () => {
     if (!query.trim()) return;
     setLoading(true);
     setSelected(null);
     const q = query.trim();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("citizens")
       .select("*")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%,apellido_paterno.ilike.%${q}%`);
+    if (error) { toast.error("Error al buscar: " + error.message); }
     setResults(data || []);
+    if (data?.length === 0) toast.info("Ciudadano no encontrado");
     setLoading(false);
   };
 
@@ -143,6 +159,25 @@ function CitizenSearch() {
     setFines(fineRes.data || []);
     setArrests(arrRes.data || []);
     setWanted(wantRes.data);
+  };
+
+  const markDangerous = async () => {
+    if (!selected || !dangerReason) { toast.error("Escribe un motivo"); return; }
+    setSubmittingDanger(true);
+    const { error } = await supabase.from("wanted_list").insert({
+      citizen_id: selected.id,
+      razon: dangerReason,
+      prioridad: dangerPriority,
+    });
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Ciudadano marcado como buscado");
+      setShowDanger(false);
+      setDangerReason("");
+      const { data: w } = await supabase.from("wanted_list").select("*").eq("citizen_id", selected.id).eq("activo", true).maybeSingle();
+      setWanted(w);
+    }
+    setSubmittingDanger(false);
   };
 
   return (
@@ -231,6 +266,36 @@ function CitizenSearch() {
               ))
             }
           </div>
+
+          {/* Marcar como Peligroso */}
+          {!wanted && (
+            <div>
+              {!showDanger ? (
+                <Button onClick={() => setShowDanger(true)} variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                  <AlertTriangle className="h-4 w-4 mr-1" /> Marcar como Peligroso
+                </Button>
+              ) : (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 space-y-3">
+                  <Textarea value={dangerReason} onChange={(e) => setDangerReason(e.target.value)} placeholder="Motivo de búsqueda"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                  <div className="flex gap-2">
+                    {["baja", "media", "alta"].map((p) => (
+                      <button key={p} onClick={() => setDangerPriority(p)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm capitalize ${dangerPriority === p ? (p === "alta" ? "bg-red-500/20 text-red-400 border-red-500/30" : p === "media" ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-blue-500/20 text-blue-400 border-blue-500/30") : "border-white/10 text-slate-400"}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={markDangerous} disabled={submittingDanger} className="bg-red-600 hover:bg-red-700">
+                      {submittingDanger ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar"}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setShowDanger(false)} className="text-slate-400">Cancelar</Button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -242,20 +307,20 @@ function VehicleSearch() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [searched, setSearched] = useState(false);
 
   const search = async () => {
     if (!query.trim()) return;
     setLoading(true);
+    setSearched(true);
     const q = query.trim().toUpperCase();
 
-    // Search by VIN, matricula, or citizen DNI
     let { data: vehicles } = await supabase
       .from("vehicles")
       .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
       .or(`vin.ilike.%${q}%,matricula.ilike.%${q}%`);
 
     if (!vehicles?.length) {
-      // Try searching by citizen DNI
       const { data: citizen } = await supabase
         .from("citizens")
         .select("id")
@@ -271,6 +336,7 @@ function VehicleSearch() {
     }
 
     setResults(vehicles || []);
+    if (!vehicles?.length) toast.info("Vehículo no encontrado");
     setLoading(false);
   };
 
@@ -306,7 +372,7 @@ function VehicleSearch() {
           ))}
         </div>
       )}
-      {results.length === 0 && query && !loading && (
+      {results.length === 0 && searched && !loading && (
         <p className="text-sm text-slate-500">Sin resultados</p>
       )}
     </div>
@@ -329,6 +395,7 @@ function FinePanel({ officer }: { officer: Officer }) {
     const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
     setCitizenResults(data || []);
+    if (!data?.length) toast.info("Ciudadano no encontrado");
   };
 
   const submit = async () => {
@@ -345,17 +412,19 @@ function FinePanel({ officer }: { officer: Officer }) {
       }
     }
 
+    const folio = "MUL" + Math.random().toString(36).substring(2, 8).toUpperCase();
+
     const { error } = await supabase.from("fines").insert({
       citizen_id: selectedCitizen.id,
       officer_id: officer.id,
-      razon,
+      razon: `[${folio}] ${razon}`,
       monto: parseInt(monto),
       evidencia_url,
     });
 
     if (error) { toast.error(error.message); }
     else {
-      toast.success(`Multa emitida a ${selectedCitizen.nombre}`);
+      toast.success(`Multa emitida con folio ${folio}`);
       setSelectedCitizen(null);
       setRazon("");
       setMonto("");
@@ -439,6 +508,7 @@ function ArrestPanel({ officer }: { officer: Officer }) {
     const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
     setCitizenResults(data || []);
+    if (!data?.length) toast.info("Ciudadano no encontrado");
   };
 
   const submit = async () => {
@@ -464,7 +534,7 @@ function ArrestPanel({ officer }: { officer: Officer }) {
 
     if (error) { toast.error(error.message); }
     else {
-      toast.success(`Arresto registrado para ${selectedCitizen.nombre}`);
+      toast.success("Arresto registrado correctamente");
       setSelectedCitizen(null);
       setCargos("");
       setEvidenceFile(null);
@@ -535,18 +605,29 @@ function Panel911({ officer }: { officer: Officer }) {
     const { data } = await supabase
       .from("emergency_reports")
       .select("*, citizens(nombre, apellido_paterno, roblox_nickname)")
+      .neq("estado", "resuelto")
       .order("created_at", { ascending: false })
       .limit(50);
     setReports(data || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchReports(); }, []);
+  useEffect(() => {
+    fetchReports();
+
+    const channel = supabase.channel("911-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "emergency_reports" }, () => {
+        fetchReports();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
 
   const updateStatus = async (id: string, estado: string) => {
-    await supabase.from("emergency_reports").update({ estado }).eq("id", id);
-    fetchReports();
-    toast.success(`Estado actualizado a "${estado}"`);
+    const { error } = await supabase.from("emergency_reports").update({ estado }).eq("id", id);
+    if (error) toast.error(error.message);
+    else toast.success(`Estado actualizado a "${estado}"`);
   };
 
   const statusColor: Record<string, string> = {
@@ -569,8 +650,9 @@ function Panel911({ officer }: { officer: Officer }) {
                   <p className="text-white font-medium">{r.tipo}</p>
                   <p className="text-sm text-slate-300 mt-1">{r.descripcion}</p>
                   <p className="text-xs text-slate-500 mt-1">
-                    📍 {r.calle_sector || "Sin ubicación"} • Por: {r.citizens?.roblox_nickname || "Desconocido"}
+                    📍 {r.calle_sector || "Sin ubicación"} • Por: {r.citizens?.roblox_nickname || r.citizens?.nombre || "Desconocido"}
                   </p>
+                  <p className="text-xs text-slate-500">{new Date(r.created_at).toLocaleString("es-CL")}</p>
                 </div>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor[r.estado] || ""}`}>{r.estado}</span>
               </div>
@@ -631,7 +713,8 @@ function PoliceChat({ officer }: { officer: Officer }) {
   const sendMessage = async () => {
     if (!newMsg.trim() || sending) return;
     setSending(true);
-    await supabase.from("police_chat").insert({ officer_id: officer.id, message: newMsg.trim() });
+    const { error } = await supabase.from("police_chat").insert({ officer_id: officer.id, message: newMsg.trim() });
+    if (error) toast.error(error.message);
     setNewMsg("");
     setSending(false);
   };
@@ -672,7 +755,7 @@ function PoliceChat({ officer }: { officer: Officer }) {
   );
 }
 
-/* ===================== SHIFT PANEL ===================== */
+
 function ShiftPanel({ officer }: { officer: Officer }) {
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [activeOfficers, setActiveOfficers] = useState<any[]>([]);
@@ -845,10 +928,10 @@ function WantedPanel() {
     setSubmitting(false);
   };
 
-  const deactivate = async (id: string) => {
-    await supabase.from("wanted_list").update({ activo: false }).eq("id", id);
-    fetchWanted();
-    toast.success("Alerta desactivada");
+  const removeWanted = async (id: string) => {
+    const { error } = await supabase.from("wanted_list").delete().eq("id", id);
+    if (error) toast.error(error.message);
+    else { fetchWanted(); toast.success("Alerta eliminada"); }
   };
 
   const prioridadColor: Record<string, string> = {
@@ -924,8 +1007,8 @@ function WantedPanel() {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full uppercase font-bold ${prioridadColor[w.prioridad]}`}>{w.prioridad}</span>
-                  <Button size="sm" variant="ghost" onClick={() => deactivate(w.id)} className="text-slate-500 hover:text-red-400 text-xs">
-                    Desactivar
+                  <Button size="sm" variant="ghost" onClick={() => removeWanted(w.id)} className="text-slate-500 hover:text-red-400 text-xs">
+                    <Trash2 className="h-3 w-3 mr-1" /> Eliminar
                   </Button>
                 </div>
               </div>
