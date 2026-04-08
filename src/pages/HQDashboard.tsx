@@ -928,10 +928,10 @@ function WantedPanel() {
     setSubmitting(false);
   };
 
-  const deactivate = async (id: string) => {
-    await supabase.from("wanted_list").update({ activo: false }).eq("id", id);
-    fetchWanted();
-    toast.success("Alerta desactivada");
+  const removeWanted = async (id: string) => {
+    const { error } = await supabase.from("wanted_list").delete().eq("id", id);
+    if (error) toast.error(error.message);
+    else { fetchWanted(); toast.success("Alerta eliminada"); }
   };
 
   const prioridadColor: Record<string, string> = {
