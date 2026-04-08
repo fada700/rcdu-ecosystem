@@ -1007,8 +1007,8 @@ function WantedPanel() {
                 </div>
                 <div className="flex flex-col items-end gap-2">
                   <span className={`text-xs px-2 py-0.5 rounded-full uppercase font-bold ${prioridadColor[w.prioridad]}`}>{w.prioridad}</span>
-                  <Button size="sm" variant="ghost" onClick={() => deactivate(w.id)} className="text-slate-500 hover:text-red-400 text-xs">
-                    Desactivar
+                  <Button size="sm" variant="ghost" onClick={() => removeWanted(w.id)} className="text-slate-500 hover:text-red-400 text-xs">
+                    <Trash2 className="h-3 w-3 mr-1" /> Eliminar
                   </Button>
                 </div>
               </div>
