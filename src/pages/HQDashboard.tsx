@@ -127,17 +127,23 @@ function CitizenSearch() {
   const [arrests, setArrests] = useState<any[]>([]);
   const [wanted, setWanted] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const [showDanger, setShowDanger] = useState(false);
+  const [dangerReason, setDangerReason] = useState("");
+  const [dangerPriority, setDangerPriority] = useState("media");
+  const [submittingDanger, setSubmittingDanger] = useState(false);
 
   const search = async () => {
     if (!query.trim()) return;
     setLoading(true);
     setSelected(null);
     const q = query.trim();
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("citizens")
       .select("*")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%,apellido_paterno.ilike.%${q}%`);
+    if (error) { toast.error("Error al buscar: " + error.message); }
     setResults(data || []);
+    if (data?.length === 0) toast.info("Ciudadano no encontrado");
     setLoading(false);
   };
 
@@ -153,6 +159,25 @@ function CitizenSearch() {
     setFines(fineRes.data || []);
     setArrests(arrRes.data || []);
     setWanted(wantRes.data);
+  };
+
+  const markDangerous = async () => {
+    if (!selected || !dangerReason) { toast.error("Escribe un motivo"); return; }
+    setSubmittingDanger(true);
+    const { error } = await supabase.from("wanted_list").insert({
+      citizen_id: selected.id,
+      razon: dangerReason,
+      prioridad: dangerPriority,
+    });
+    if (error) toast.error(error.message);
+    else {
+      toast.success("Ciudadano marcado como buscado");
+      setShowDanger(false);
+      setDangerReason("");
+      const { data: w } = await supabase.from("wanted_list").select("*").eq("citizen_id", selected.id).eq("activo", true).maybeSingle();
+      setWanted(w);
+    }
+    setSubmittingDanger(false);
   };
 
   return (
@@ -241,443 +266,38 @@ function CitizenSearch() {
               ))
             }
           </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
-/* ===================== VEHICLE SEARCH ===================== */
-function VehicleSearch() {
-  const [query, setQuery] = useState("");
-  const [results, setResults] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const search = async () => {
-    if (!query.trim()) return;
-    setLoading(true);
-    const q = query.trim().toUpperCase();
-
-    // Search by VIN, matricula, or citizen DNI
-    let { data: vehicles } = await supabase
-      .from("vehicles")
-      .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
-      .or(`vin.ilike.%${q}%,matricula.ilike.%${q}%`);
-
-    if (!vehicles?.length) {
-      // Try searching by citizen DNI
-      const { data: citizen } = await supabase
-        .from("citizens")
-        .select("id")
-        .eq("folio_dni", q)
-        .maybeSingle();
-      if (citizen) {
-        const { data } = await supabase
-          .from("vehicles")
-          .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
-          .eq("citizen_id", citizen.id);
-        vehicles = data;
-      }
-    }
-
-    setResults(vehicles || []);
-    setLoading(false);
-  };
-
-  return (
-    <div>
-      <h2 className="text-xl font-bold text-white mb-4">Búsqueda de Vehículos</h2>
-      <div className="flex gap-2 mb-4">
-        <Input value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder="VIN / Matrícula / DNI Folio" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500 uppercase" />
-        <Button onClick={search} disabled={loading} className="bg-blue-600 hover:bg-blue-700">
-          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
-        </Button>
-      </div>
-
-      {results.length > 0 && (
-        <div className="space-y-2">
-          {results.map((v) => (
-            <div key={v.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-white font-medium">{v.marca} {v.modelo} {v.anio || ""}</h3>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${v.estado === "activo" ? "bg-emerald-500/20 text-emerald-400" : "bg-red-500/20 text-red-400"}`}>
-                  {v.estado}
-                </span>
-              </div>
-              <div className="mt-2 grid grid-cols-2 gap-1 text-sm">
-                <p className="text-slate-400">Matrícula: <span className="text-white">{v.matricula}</span></p>
-                <p className="text-slate-400">VIN: <span className="text-white font-mono text-xs">{v.vin}</span></p>
-                <p className="text-slate-400">Color: <span className="text-white">{v.color}</span></p>
-                <p className="text-slate-400">Dueño: <span className="text-white">{v.citizens?.nombre} {v.citizens?.apellido_paterno}</span></p>
-                <p className="text-slate-400">DNI: <span className="text-white">{v.citizens?.folio_dni}</span></p>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-      {results.length === 0 && query && !loading && (
-        <p className="text-sm text-slate-500">Sin resultados</p>
-      )}
-    </div>
-  );
-}
-
-/* ===================== FINE PANEL ===================== */
-function FinePanel({ officer }: { officer: Officer }) {
-  const [citizenQuery, setCitizenQuery] = useState("");
-  const [citizenResults, setCitizenResults] = useState<any[]>([]);
-  const [selectedCitizen, setSelectedCitizen] = useState<any>(null);
-  const [razon, setRazon] = useState("");
-  const [monto, setMonto] = useState("");
-  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const searchCitizen = async () => {
-    if (!citizenQuery.trim()) return;
-    const q = citizenQuery.trim();
-    const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
-      .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
-    setCitizenResults(data || []);
-  };
-
-  const submit = async () => {
-    if (!selectedCitizen || !razon || !monto) { toast.error("Completa todos los campos"); return; }
-    setSubmitting(true);
-
-    let evidencia_url: string | null = null;
-    if (evidenceFile) {
-      const path = `fines/${Date.now()}_${evidenceFile.name}`;
-      const { error: upErr } = await supabase.storage.from("evidence").upload(path, evidenceFile);
-      if (!upErr) {
-        const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
-        evidencia_url = urlData.publicUrl;
-      }
-    }
-
-    const { error } = await supabase.from("fines").insert({
-      citizen_id: selectedCitizen.id,
-      officer_id: officer.id,
-      razon,
-      monto: parseInt(monto),
-      evidencia_url,
-    });
-
-    if (error) { toast.error(error.message); }
-    else {
-      toast.success(`Multa emitida a ${selectedCitizen.nombre}`);
-      setSelectedCitizen(null);
-      setRazon("");
-      setMonto("");
-      setEvidenceFile(null);
-      setCitizenQuery("");
-      setCitizenResults([]);
-    }
-    setSubmitting(false);
-  };
-
-  return (
-    <div>
-      <h2 className="text-xl font-bold text-white mb-4">Emitir Multa</h2>
-
-      {!selectedCitizen ? (
-        <>
-          <div className="flex gap-2 mb-4">
-            <Input value={citizenQuery} onChange={(e) => setCitizenQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && searchCitizen()}
-              placeholder="Buscar ciudadano por DNI / Roblox / Nombre" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-            <Button onClick={searchCitizen} className="bg-blue-600 hover:bg-blue-700"><Search className="h-4 w-4" /></Button>
-          </div>
-          <div className="space-y-2">
-            {citizenResults.map((c) => (
-              <button key={c.id} onClick={() => setSelectedCitizen(c)}
-                className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10">
-                <span className="text-white">{c.nombre} {c.apellido_paterno}</span>
-                <span className="text-xs text-slate-400">{c.folio_dni}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="space-y-4 max-w-lg">
-          <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 flex items-center justify-between">
+          {/* Marcar como Peligroso */}
+          {!wanted && (
             <div>
-              <p className="text-white font-medium">{selectedCitizen.nombre} {selectedCitizen.apellido_paterno}</p>
-              <p className="text-xs text-slate-400">DNI: {selectedCitizen.folio_dni}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={() => setSelectedCitizen(null)}><X className="h-4 w-4 text-slate-400" /></Button>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">Motivo</label>
-            <Textarea value={razon} onChange={(e) => setRazon(e.target.value)} placeholder="Descripción de la infracción"
-              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">Monto ($)</label>
-            <Input type="number" value={monto} onChange={(e) => setMonto(e.target.value)} placeholder="0"
-              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">Evidencia (opcional)</label>
-            <Input type="file" accept="image/*" onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
-              className="bg-white/5 border-white/10 text-white" />
-          </div>
-
-          <Button onClick={submit} disabled={submitting} className="w-full bg-amber-600 hover:bg-amber-700">
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Emitir Multa"}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ===================== ARREST PANEL ===================== */
-function ArrestPanel({ officer }: { officer: Officer }) {
-  const [citizenQuery, setCitizenQuery] = useState("");
-  const [citizenResults, setCitizenResults] = useState<any[]>([]);
-  const [selectedCitizen, setSelectedCitizen] = useState<any>(null);
-  const [cargos, setCargos] = useState("");
-  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-
-  const searchCitizen = async () => {
-    if (!citizenQuery.trim()) return;
-    const q = citizenQuery.trim();
-    const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
-      .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
-    setCitizenResults(data || []);
-  };
-
-  const submit = async () => {
-    if (!selectedCitizen || !cargos) { toast.error("Completa todos los campos"); return; }
-    setSubmitting(true);
-
-    let evidencia_url: string | null = null;
-    if (evidenceFile) {
-      const path = `arrests/${Date.now()}_${evidenceFile.name}`;
-      const { error: upErr } = await supabase.storage.from("evidence").upload(path, evidenceFile);
-      if (!upErr) {
-        const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
-        evidencia_url = urlData.publicUrl;
-      }
-    }
-
-    const { error } = await supabase.from("arrests").insert({
-      citizen_id: selectedCitizen.id,
-      officer_id: officer.id,
-      cargos,
-      evidencia_url,
-    });
-
-    if (error) { toast.error(error.message); }
-    else {
-      toast.success(`Arresto registrado para ${selectedCitizen.nombre}`);
-      setSelectedCitizen(null);
-      setCargos("");
-      setEvidenceFile(null);
-      setCitizenQuery("");
-      setCitizenResults([]);
-    }
-    setSubmitting(false);
-  };
-
-  return (
-    <div>
-      <h2 className="text-xl font-bold text-white mb-4">Registro de Arresto</h2>
-
-      {!selectedCitizen ? (
-        <>
-          <div className="flex gap-2 mb-4">
-            <Input value={citizenQuery} onChange={(e) => setCitizenQuery(e.target.value)} onKeyDown={(e) => e.key === "Enter" && searchCitizen()}
-              placeholder="Buscar ciudadano" className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-            <Button onClick={searchCitizen} className="bg-blue-600 hover:bg-blue-700"><Search className="h-4 w-4" /></Button>
-          </div>
-          <div className="space-y-2">
-            {citizenResults.map((c) => (
-              <button key={c.id} onClick={() => setSelectedCitizen(c)}
-                className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-white/5 p-3 text-left hover:bg-white/10">
-                <span className="text-white">{c.nombre} {c.apellido_paterno}</span>
-                <span className="text-xs text-slate-400">{c.folio_dni}</span>
-              </button>
-            ))}
-          </div>
-        </>
-      ) : (
-        <div className="space-y-4 max-w-lg">
-          <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-3 flex items-center justify-between">
-            <div>
-              <p className="text-white font-medium">{selectedCitizen.nombre} {selectedCitizen.apellido_paterno}</p>
-              <p className="text-xs text-slate-400">DNI: {selectedCitizen.folio_dni}</p>
-            </div>
-            <Button variant="ghost" size="icon" onClick={() => setSelectedCitizen(null)}><X className="h-4 w-4 text-slate-400" /></Button>
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">Cargos</label>
-            <Textarea value={cargos} onChange={(e) => setCargos(e.target.value)} placeholder="Detalle de los cargos"
-              className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-          </div>
-
-          <div>
-            <label className="mb-1 block text-sm text-slate-300">Evidencia (opcional)</label>
-            <Input type="file" accept="image/*" onChange={(e) => setEvidenceFile(e.target.files?.[0] || null)}
-              className="bg-white/5 border-white/10 text-white" />
-          </div>
-
-          <Button onClick={submit} disabled={submitting} className="w-full bg-red-600 hover:bg-red-700">
-            {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : "Registrar Arresto"}
-          </Button>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ===================== 911 PANEL ===================== */
-function Panel911({ officer }: { officer: Officer }) {
-  const [reports, setReports] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-
-  const fetchReports = async () => {
-    const { data } = await supabase
-      .from("emergency_reports")
-      .select("*, citizens(nombre, apellido_paterno, roblox_nickname)")
-      .order("created_at", { ascending: false })
-      .limit(50);
-    setReports(data || []);
-    setLoading(false);
-  };
-
-  useEffect(() => { fetchReports(); }, []);
-
-  const updateStatus = async (id: string, estado: string) => {
-    await supabase.from("emergency_reports").update({ estado }).eq("id", id);
-    fetchReports();
-    toast.success(`Estado actualizado a "${estado}"`);
-  };
-
-  const statusColor: Record<string, string> = {
-    pendiente: "bg-amber-500/20 text-amber-400",
-    en_camino: "bg-blue-500/20 text-blue-400",
-    resuelto: "bg-emerald-500/20 text-emerald-400",
-  };
-
-  return (
-    <div>
-      <h2 className="text-xl font-bold text-white mb-4">Panel 911</h2>
-      {loading ? <Loader2 className="h-6 w-6 animate-spin text-blue-400" /> : reports.length === 0 ? (
-        <p className="text-slate-500">No hay reportes de emergencia</p>
-      ) : (
-        <div className="space-y-3">
-          {reports.map((r) => (
-            <div key={r.id} className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <div className="flex items-start justify-between">
-                <div>
-                  <p className="text-white font-medium">{r.tipo}</p>
-                  <p className="text-sm text-slate-300 mt-1">{r.descripcion}</p>
-                  <p className="text-xs text-slate-500 mt-1">
-                    📍 {r.calle_sector || "Sin ubicación"} • Por: {r.citizens?.roblox_nickname || "Desconocido"}
-                  </p>
-                </div>
-                <span className={`text-xs px-2 py-0.5 rounded-full ${statusColor[r.estado] || ""}`}>{r.estado}</span>
-              </div>
-              {r.estado !== "resuelto" && (
-                <div className="mt-3 flex gap-2">
-                  {r.estado === "pendiente" && (
-                    <Button size="sm" variant="outline" onClick={() => updateStatus(r.id, "en_camino")}
-                      className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">En Camino</Button>
-                  )}
-                  <Button size="sm" variant="outline" onClick={() => updateStatus(r.id, "resuelto")}
-                    className="border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10">Resuelto</Button>
+              {!showDanger ? (
+                <Button onClick={() => setShowDanger(true)} variant="outline" className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                  <AlertTriangle className="h-4 w-4 mr-1" /> Marcar como Peligroso
+                </Button>
+              ) : (
+                <div className="rounded-xl border border-red-500/30 bg-red-500/5 p-4 space-y-3">
+                  <Textarea value={dangerReason} onChange={(e) => setDangerReason(e.target.value)} placeholder="Motivo de búsqueda"
+                    className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
+                  <div className="flex gap-2">
+                    {["baja", "media", "alta"].map((p) => (
+                      <button key={p} onClick={() => setDangerPriority(p)}
+                        className={`rounded-lg border px-3 py-1.5 text-sm capitalize ${dangerPriority === p ? (p === "alta" ? "bg-red-500/20 text-red-400 border-red-500/30" : p === "media" ? "bg-amber-500/20 text-amber-400 border-amber-500/30" : "bg-blue-500/20 text-blue-400 border-blue-500/30") : "border-white/10 text-slate-400"}`}>
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex gap-2">
+                    <Button onClick={markDangerous} disabled={submittingDanger} className="bg-red-600 hover:bg-red-700">
+                      {submittingDanger ? <Loader2 className="h-4 w-4 animate-spin" /> : "Confirmar"}
+                    </Button>
+                    <Button variant="ghost" onClick={() => setShowDanger(false)} className="text-slate-400">Cancelar</Button>
+                  </div>
                 </div>
               )}
             </div>
-          ))}
+          )}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ===================== POLICE CHAT ===================== */
-function PoliceChat({ officer }: { officer: Officer }) {
-  const [messages, setMessages] = useState<any[]>([]);
-  const [newMsg, setNewMsg] = useState("");
-  const [sending, setSending] = useState(false);
-  const bottomRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const fetchMessages = async () => {
-      const { data } = await supabase
-        .from("police_chat")
-        .select("*, officers(placa, rango, citizens(roblox_nickname))")
-        .order("created_at", { ascending: true })
-        .limit(100);
-      setMessages(data || []);
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-    };
-    fetchMessages();
-
-    const channel = supabase.channel("police-chat-realtime")
-      .on("postgres_changes", { event: "INSERT", schema: "public", table: "police_chat" }, async (payload) => {
-        const { data } = await supabase
-          .from("police_chat")
-          .select("*, officers(placa, rango, citizens(roblox_nickname))")
-          .eq("id", payload.new.id)
-          .single();
-        if (data) {
-          setMessages((prev) => [...prev, data]);
-          setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-        }
-      })
-      .subscribe();
-
-    return () => { supabase.removeChannel(channel); };
-  }, []);
-
-  const sendMessage = async () => {
-    if (!newMsg.trim() || sending) return;
-    setSending(true);
-    await supabase.from("police_chat").insert({ officer_id: officer.id, message: newMsg.trim() });
-    setNewMsg("");
-    setSending(false);
-  };
-
-  return (
-    <div className="flex flex-col h-[calc(100vh-6rem)]">
-      <h2 className="text-xl font-bold text-white mb-4">Chat Interno Policial</h2>
-      <div className="flex-1 overflow-auto space-y-2 rounded-xl border border-white/10 bg-white/5 p-4 mb-4">
-        {messages.map((m) => {
-          const isMe = m.officer_id === officer.id;
-          return (
-            <div key={m.id} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
-              <div className={`max-w-[70%] rounded-xl px-3 py-2 ${isMe ? "bg-blue-600/30 text-blue-100" : "bg-white/10 text-white"}`}>
-                {!isMe && (
-                  <p className="text-xs text-blue-400 font-medium mb-0.5">
-                    {m.officers?.citizens?.roblox_nickname || m.officers?.placa}
-                  </p>
-                )}
-                <p className="text-sm">{m.message}</p>
-                <p className="text-[10px] text-slate-500 mt-0.5 text-right">
-                  {new Date(m.created_at).toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" })}
-                </p>
-              </div>
-            </div>
-          );
-        })}
-        <div ref={bottomRef} />
-      </div>
-      <div className="flex gap-2">
-        <Input value={newMsg} onChange={(e) => setNewMsg(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && sendMessage()}
-          placeholder="Escribe un mensaje..." className="bg-white/5 border-white/10 text-white placeholder:text-slate-500" />
-        <Button onClick={sendMessage} disabled={sending} className="bg-blue-600 hover:bg-blue-700">
-          <Send className="h-4 w-4" />
-        </Button>
-      </div>
     </div>
   );
 }
