@@ -409,7 +409,7 @@ function FinePanel({ officer }: { officer: Officer }) {
 
     const { error } = await supabase.from("fines").insert({
       citizen_id: selectedCitizen.id,
-      officer_id: officer.id,
+      officer_id: officer.citizen_id,
       razon: `[${folio}] ${razon}`,
       monto: parseInt(monto),
       evidencia_url,
