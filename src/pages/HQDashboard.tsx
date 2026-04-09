@@ -40,16 +40,9 @@ export default function HQDashboard() {
   const [activeTab, setActiveTab] = useState("search");
 
   useEffect(() => {
-    const init = async () => {
+    const init = () => {
       const stored = sessionStorage.getItem("hq_officer");
       if (!stored) { navigate("/hq-login"); return; }
-      // Ensure Supabase Auth session exists (needed for RLS)
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
-        toast.error("Debes iniciar sesión con Discord primero");
-        navigate("/login");
-        return;
-      }
       setOfficer(JSON.parse(stored));
     };
     init();
