@@ -786,85 +786,171 @@ function ShiftPanel({ officer }: { officer: Officer }) {
   const [currentShift, setCurrentShift] = useState<any>(null);
   const [activeOfficers, setActiveOfficers] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [actionLoading, setActionLoading] = useState<"start" | "break" | "resume" | "end" | null>(null);
 
-  const fetchData = async () => {
-    const { data: currentShiftRows } = await hqSupabase
+  const getOpenShift = async () => {
+    const { data, error } = await hqSupabase
       .from("officer_shifts")
       .select("*")
       .eq("officer_id", officer.id)
       .is("fin", null)
-      .in("estado", ["en_servicio", "break"])
       .order("inicio", { ascending: false })
       .limit(1);
-    setCurrentShift(currentShiftRows?.[0] ?? null);
 
-    const { data: shifts } = await hqSupabase
-      .from("officer_shifts")
-      .select("*, officers(placa, rango, departamento, citizens(roblox_nickname, nombre, apellido_paterno))")
-      .is("fin", null)
-      .in("estado", ["en_servicio", "break"])
-      .order("inicio", { ascending: true });
-    setActiveOfficers(shifts || []);
+    if (error) {
+      toast.error(error.message);
+      return null;
+    }
+
+    return data?.[0] ?? null;
+  };
+
+  const syncOfficerStatus = async (enServicio: boolean) => {
+    const { error } = await hqSupabase.from("officers").update({ en_servicio: enServicio }).eq("id", officer.id);
+    if (error) toast.error(error.message);
+  };
+
+  const fetchData = async () => {
+    setLoading(true);
+
+    const [{ data: ownShiftRows, error: ownShiftError }, { data: shifts, error: shiftsError }] = await Promise.all([
+      hqSupabase
+        .from("officer_shifts")
+        .select("*")
+        .eq("officer_id", officer.id)
+        .is("fin", null)
+        .order("inicio", { ascending: false })
+        .limit(1),
+      hqSupabase
+        .from("officer_shifts")
+        .select("*, officers(placa, rango, departamento, citizens(roblox_nickname, nombre, apellido_paterno))")
+        .is("fin", null)
+        .in("estado", ["en_servicio", "break"])
+        .order("inicio", { ascending: true }),
+    ]);
+
+    if (ownShiftError) toast.error(ownShiftError.message);
+    if (shiftsError) toast.error(shiftsError.message);
+
+    const nextActiveOfficers = shifts || [];
+    const ownShift = ownShiftRows?.[0] ?? nextActiveOfficers.find((shift) => shift.officer_id === officer.id) ?? null;
+
+    setCurrentShift(ownShift);
+    setActiveOfficers(nextActiveOfficers);
     setLoading(false);
   };
 
-  useEffect(() => { fetchData(); }, []);
+  useEffect(() => { fetchData(); }, [officer.id]);
 
   const startShift = async () => {
-    if (currentShift) {
-      toast.info("Ya tienes un turno activo");
+    setActionLoading("start");
+
+    const existingShift = currentShift ?? await getOpenShift();
+    if (existingShift) {
+      if (existingShift.estado !== "en_servicio") {
+        const { error } = await hqSupabase
+          .from("officer_shifts")
+          .update({ estado: "en_servicio" })
+          .eq("id", existingShift.id);
+
+        if (error) {
+          toast.error(error.message);
+          setActionLoading(null);
+          return;
+        }
+      }
+
+      await syncOfficerStatus(true);
+      await fetchData();
+      toast.success("Turno listo");
+      setActionLoading(null);
       return;
     }
 
     const { error } = await hqSupabase.from("officer_shifts").insert({ officer_id: officer.id, estado: "en_servicio" });
     if (error) {
       toast.error(error.message);
+      setActionLoading(null);
       return;
     }
 
-    await hqSupabase.from("officers").update({ en_servicio: true }).eq("id", officer.id);
-    fetchData();
+    await syncOfficerStatus(true);
+    await fetchData();
     toast.success("Turno iniciado");
+    setActionLoading(null);
   };
 
   const takeBreak = async () => {
-    if (currentShift && currentShift.estado !== "break") {
-      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "break" }).eq("id", currentShift.id);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
+    setActionLoading("break");
+    const shift = currentShift ?? await getOpenShift();
 
-      fetchData();
-      toast.info("En break");
+    if (!shift) {
+      toast.info("No tienes un turno activo");
+      setActionLoading(null);
+      return;
     }
+
+    const { error } = await hqSupabase.from("officer_shifts").update({ estado: "break" }).eq("id", shift.id);
+    if (error) {
+      toast.error(error.message);
+      setActionLoading(null);
+      return;
+    }
+
+    await syncOfficerStatus(true);
+    await fetchData();
+    toast.info("En break");
+    setActionLoading(null);
   };
 
   const resumeShift = async () => {
-    if (currentShift && currentShift.estado === "break") {
-      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "en_servicio" }).eq("id", currentShift.id);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
+    setActionLoading("resume");
+    const shift = currentShift ?? await getOpenShift();
 
-      fetchData();
-      toast.success("Turno reanudado");
+    if (!shift) {
+      toast.info("No tienes un turno activo");
+      setActionLoading(null);
+      return;
     }
+
+    const { error } = await hqSupabase.from("officer_shifts").update({ estado: "en_servicio" }).eq("id", shift.id);
+    if (error) {
+      toast.error(error.message);
+      setActionLoading(null);
+      return;
+    }
+
+    await syncOfficerStatus(true);
+    await fetchData();
+    toast.success("Turno reanudado");
+    setActionLoading(null);
   };
 
   const endShift = async () => {
-    if (currentShift) {
-      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "finalizado", fin: new Date().toISOString() }).eq("id", currentShift.id);
-      if (error) {
-        toast.error(error.message);
-        return;
-      }
+    setActionLoading("end");
+    const shift = currentShift ?? await getOpenShift();
 
-      await hqSupabase.from("officers").update({ en_servicio: false }).eq("id", officer.id);
-      fetchData();
-      toast.success("Turno finalizado");
+    if (!shift) {
+      toast.info("No tienes un turno activo");
+      setActionLoading(null);
+      return;
     }
+
+    const { error } = await hqSupabase
+      .from("officer_shifts")
+      .update({ estado: "finalizado", fin: new Date().toISOString() })
+      .eq("id", shift.id);
+
+    if (error) {
+      toast.error(error.message);
+      setActionLoading(null);
+      return;
+    }
+
+    await syncOfficerStatus(false);
+    await fetchData();
+    toast.success("Turno finalizado");
+    setActionLoading(null);
   };
 
   const formatDuration = (start: string) => {
@@ -888,22 +974,22 @@ function ShiftPanel({ officer }: { officer: Officer }) {
             </p>
             <div className="flex gap-2">
               {currentShift.estado === "break" ? (
-                <Button variant="outline" onClick={resumeShift} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">
-                  <Play className="h-4 w-4 mr-1" /> Volver al servicio
+                <Button variant="outline" onClick={resumeShift} disabled={!!actionLoading} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">
+                  {actionLoading === "resume" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />} Volver al servicio
                 </Button>
               ) : (
-                <Button variant="outline" onClick={takeBreak} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-                  <Coffee className="h-4 w-4 mr-1" /> Break
+                <Button variant="outline" onClick={takeBreak} disabled={!!actionLoading} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                  {actionLoading === "break" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Coffee className="h-4 w-4 mr-1" />} Break
                 </Button>
               )}
-              <Button variant="outline" onClick={endShift} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
-                <Square className="h-4 w-4 mr-1" /> Terminar
+              <Button variant="outline" onClick={endShift} disabled={!!actionLoading} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                {actionLoading === "end" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Square className="h-4 w-4 mr-1" />} Terminar
               </Button>
             </div>
           </div>
         ) : (
-          <Button onClick={startShift} className="bg-emerald-600 hover:bg-emerald-700">
-            <Play className="h-4 w-4 mr-1" /> Iniciar Turno
+          <Button onClick={startShift} disabled={!!actionLoading} className="bg-emerald-600 hover:bg-emerald-700">
+            {actionLoading === "start" ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Play className="h-4 w-4 mr-1" />} Iniciar Turno
           </Button>
         )}
       </div>
@@ -917,10 +1003,12 @@ function ShiftPanel({ officer }: { officer: Officer }) {
         ) : (
           <div className="space-y-2">
             {activeOfficers.map((s) => (
-              <div key={s.id} className="flex items-center justify-between rounded-lg bg-white/5 p-3">
+              <div key={s.id} className={`rounded-lg p-3 ${s.officer_id === officer.id ? "bg-blue-500/10 border border-blue-500/20" : "bg-white/5"}`}>
+                <div className="flex items-center justify-between">
                 <div>
                   <p className="text-white text-sm font-medium">
                     {s.officers?.citizens?.roblox_nickname || s.officers?.citizens?.nombre}
+                    {s.officer_id === officer.id && <span className="ml-2 text-xs text-blue-400">Tú</span>}
                   </p>
                   <p className="text-xs text-slate-400">
                     {s.officers?.rango} • {s.officers?.placa} • {s.officers?.departamento}
@@ -932,6 +1020,23 @@ function ShiftPanel({ officer }: { officer: Officer }) {
                   </span>
                   <p className="text-xs text-slate-500 mt-1">{formatDuration(s.inicio)}</p>
                 </div>
+              </div>
+                {s.officer_id === officer.id && (
+                  <div className="mt-3 flex gap-2">
+                    {s.estado === "break" ? (
+                      <Button size="sm" variant="outline" onClick={resumeShift} disabled={!!actionLoading} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">
+                        Volver
+                      </Button>
+                    ) : (
+                      <Button size="sm" variant="outline" onClick={takeBreak} disabled={!!actionLoading} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                        Break
+                      </Button>
+                    )}
+                    <Button size="sm" variant="outline" onClick={endShift} disabled={!!actionLoading} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
+                      Terminar
+                    </Button>
+                  </div>
+                )}
               </div>
             ))}
           </div>
