@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, AnimatePresence } from "framer-motion";
+import { createClient } from "@supabase/supabase-js";
 import {
   Shield, Search, Car, FileWarning, Phone, MessageSquare,
   Clock, AlertTriangle, LogOut, Send, Loader2, Upload, UserCheck,
   ChevronRight, X, Coffee, Play, Square, Users, Gavel, Trash2
 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,6 +35,33 @@ const tabs = [
   { id: "wanted", label: "Buscados", icon: AlertTriangle },
 ];
 
+const hqSupabase = createClient<Database>(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: "hq-dashboard-anon",
+    },
+  },
+);
+
+function getStoredOfficer(): Officer | null {
+  try {
+    const stored = sessionStorage.getItem("hq_officer");
+    if (!stored) return null;
+
+    const parsed = JSON.parse(stored);
+    if (!parsed?.id || !parsed?.placa || !parsed?.citizen_id) return null;
+
+    return parsed as Officer;
+  } catch {
+    return null;
+  }
+}
+
 export default function HQDashboard() {
   const navigate = useNavigate();
   const [officer, setOfficer] = useState<Officer | null>(null);
@@ -41,9 +69,14 @@ export default function HQDashboard() {
 
   useEffect(() => {
     const init = () => {
-      const stored = sessionStorage.getItem("hq_officer");
-      if (!stored) { navigate("/hq-login"); return; }
-      setOfficer(JSON.parse(stored));
+      const storedOfficer = getStoredOfficer();
+      if (!storedOfficer) {
+        sessionStorage.removeItem("hq_officer");
+        navigate("/hq-login");
+        return;
+      }
+
+      setOfficer(storedOfficer);
     };
     init();
   }, [navigate]);
@@ -130,7 +163,7 @@ function CitizenSearch() {
     setLoading(true);
     setSelected(null);
     const q = query.trim();
-    const { data, error } = await supabase
+    const { data, error } = await hqSupabase
       .from("citizens")
       .select("*")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%,apellido_paterno.ilike.%${q}%`);
@@ -143,10 +176,10 @@ function CitizenSearch() {
   const selectCitizen = async (c: any) => {
     setSelected(c);
     const [licRes, fineRes, arrRes, wantRes] = await Promise.all([
-      supabase.from("licenses").select("*").eq("citizen_id", c.id),
-      supabase.from("fines").select("*").eq("citizen_id", c.id).order("created_at", { ascending: false }),
-      supabase.from("arrests").select("*").eq("citizen_id", c.id).order("created_at", { ascending: false }),
-      supabase.from("wanted_list").select("*").eq("citizen_id", c.id).eq("activo", true).maybeSingle(),
+      hqSupabase.from("licenses").select("*").eq("citizen_id", c.id),
+      hqSupabase.from("fines").select("*").eq("citizen_id", c.id).order("created_at", { ascending: false }),
+      hqSupabase.from("arrests").select("*").eq("citizen_id", c.id).order("created_at", { ascending: false }),
+      hqSupabase.from("wanted_list").select("*").eq("citizen_id", c.id).eq("activo", true).maybeSingle(),
     ]);
     setLicenses(licRes.data || []);
     setFines(fineRes.data || []);
@@ -157,7 +190,7 @@ function CitizenSearch() {
   const markDangerous = async () => {
     if (!selected || !dangerReason) { toast.error("Escribe un motivo"); return; }
     setSubmittingDanger(true);
-    const { error } = await supabase.from("wanted_list").insert({
+    const { error } = await hqSupabase.from("wanted_list").insert({
       citizen_id: selected.id,
       razon: dangerReason,
       prioridad: dangerPriority,
@@ -167,7 +200,7 @@ function CitizenSearch() {
       toast.success("Ciudadano marcado como buscado");
       setShowDanger(false);
       setDangerReason("");
-      const { data: w } = await supabase.from("wanted_list").select("*").eq("citizen_id", selected.id).eq("activo", true).maybeSingle();
+      const { data: w } = await hqSupabase.from("wanted_list").select("*").eq("citizen_id", selected.id).eq("activo", true).maybeSingle();
       setWanted(w);
     }
     setSubmittingDanger(false);
@@ -308,19 +341,19 @@ function VehicleSearch() {
     setSearched(true);
     const q = query.trim().toUpperCase();
 
-    let { data: vehicles } = await supabase
+    let { data: vehicles } = await hqSupabase
       .from("vehicles")
       .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
       .or(`vin.ilike.%${q}%,matricula.ilike.%${q}%`);
 
     if (!vehicles?.length) {
-      const { data: citizen } = await supabase
+      const { data: citizen } = await hqSupabase
         .from("citizens")
         .select("id")
         .eq("folio_dni", q)
         .maybeSingle();
       if (citizen) {
-        const { data } = await supabase
+        const { data } = await hqSupabase
           .from("vehicles")
           .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
           .eq("citizen_id", citizen.id);
@@ -385,7 +418,7 @@ function FinePanel({ officer }: { officer: Officer }) {
   const searchCitizen = async () => {
     if (!citizenQuery.trim()) return;
     const q = citizenQuery.trim();
-    const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
+    const { data } = await hqSupabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
     setCitizenResults(data || []);
     if (!data?.length) toast.info("Ciudadano no encontrado");
@@ -398,16 +431,16 @@ function FinePanel({ officer }: { officer: Officer }) {
     let evidencia_url: string | null = null;
     if (evidenceFile) {
       const path = `fines/${Date.now()}_${evidenceFile.name}`;
-      const { error: upErr } = await supabase.storage.from("evidence").upload(path, evidenceFile);
+      const { error: upErr } = await hqSupabase.storage.from("evidence").upload(path, evidenceFile);
       if (!upErr) {
-        const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
+        const { data: urlData } = hqSupabase.storage.from("evidence").getPublicUrl(path);
         evidencia_url = urlData.publicUrl;
       }
     }
 
     const folio = "MUL" + Math.random().toString(36).substring(2, 8).toUpperCase();
 
-    const { error } = await supabase.from("fines").insert({
+    const { error } = await hqSupabase.from("fines").insert({
       citizen_id: selectedCitizen.id,
       officer_id: officer.citizen_id,
       razon: `[${folio}] ${razon}`,
@@ -498,7 +531,7 @@ function ArrestPanel({ officer }: { officer: Officer }) {
   const searchCitizen = async () => {
     if (!citizenQuery.trim()) return;
     const q = citizenQuery.trim();
-    const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
+    const { data } = await hqSupabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
     setCitizenResults(data || []);
     if (!data?.length) toast.info("Ciudadano no encontrado");
@@ -511,14 +544,14 @@ function ArrestPanel({ officer }: { officer: Officer }) {
     let evidencia_url: string | null = null;
     if (evidenceFile) {
       const path = `arrests/${Date.now()}_${evidenceFile.name}`;
-      const { error: upErr } = await supabase.storage.from("evidence").upload(path, evidenceFile);
+      const { error: upErr } = await hqSupabase.storage.from("evidence").upload(path, evidenceFile);
       if (!upErr) {
-        const { data: urlData } = supabase.storage.from("evidence").getPublicUrl(path);
+        const { data: urlData } = hqSupabase.storage.from("evidence").getPublicUrl(path);
         evidencia_url = urlData.publicUrl;
       }
     }
 
-    const { error } = await supabase.from("arrests").insert({
+    const { error } = await hqSupabase.from("arrests").insert({
       citizen_id: selectedCitizen.id,
       officer_id: officer.id,
       cargos,
@@ -595,7 +628,7 @@ function Panel911({ officer }: { officer: Officer }) {
   const [loading, setLoading] = useState(true);
 
   const fetchReports = async () => {
-    const { data } = await supabase
+    const { data } = await hqSupabase
       .from("emergency_reports")
       .select("*, citizens(nombre, apellido_paterno, roblox_nickname)")
       .neq("estado", "resuelto")
@@ -608,17 +641,17 @@ function Panel911({ officer }: { officer: Officer }) {
   useEffect(() => {
     fetchReports();
 
-    const channel = supabase.channel("911-realtime")
+    const channel = hqSupabase.channel("911-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "emergency_reports" }, () => {
         fetchReports();
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { hqSupabase.removeChannel(channel); };
   }, []);
 
   const updateStatus = async (id: string, estado: string) => {
-    const { error } = await supabase.from("emergency_reports").update({ estado }).eq("id", id);
+    const { error } = await hqSupabase.from("emergency_reports").update({ estado }).eq("id", id);
     if (error) toast.error(error.message);
     else toast.success(`Estado actualizado a "${estado}"`);
   };
@@ -676,7 +709,7 @@ function PoliceChat({ officer }: { officer: Officer }) {
 
   useEffect(() => {
     const fetchMessages = async () => {
-      const { data } = await supabase
+      const { data } = await hqSupabase
         .from("police_chat")
         .select("*, officers(placa, rango, citizens(roblox_nickname))")
         .order("created_at", { ascending: true })
@@ -686,9 +719,9 @@ function PoliceChat({ officer }: { officer: Officer }) {
     };
     fetchMessages();
 
-    const channel = supabase.channel("police-chat-realtime")
+    const channel = hqSupabase.channel("police-chat-realtime")
       .on("postgres_changes", { event: "INSERT", schema: "public", table: "police_chat" }, async (payload) => {
-        const { data } = await supabase
+        const { data } = await hqSupabase
           .from("police_chat")
           .select("*, officers(placa, rango, citizens(roblox_nickname))")
           .eq("id", payload.new.id)
@@ -700,13 +733,13 @@ function PoliceChat({ officer }: { officer: Officer }) {
       })
       .subscribe();
 
-    return () => { supabase.removeChannel(channel); };
+    return () => { hqSupabase.removeChannel(channel); };
   }, []);
 
   const sendMessage = async () => {
     if (!newMsg.trim() || sending) return;
     setSending(true);
-    const { error } = await supabase.from("police_chat").insert({ officer_id: officer.id, message: newMsg.trim() });
+    const { error } = await hqSupabase.from("police_chat").insert({ officer_id: officer.id, message: newMsg.trim() });
     if (error) toast.error(error.message);
     setNewMsg("");
     setSending(false);
@@ -755,19 +788,20 @@ function ShiftPanel({ officer }: { officer: Officer }) {
   const [loading, setLoading] = useState(true);
 
   const fetchData = async () => {
-    // Get current officer's active shift
-    const { data: shift } = await supabase
+    const { data: currentShiftRows } = await hqSupabase
       .from("officer_shifts")
       .select("*")
       .eq("officer_id", officer.id)
-      .eq("estado", "en_servicio")
-      .maybeSingle();
-    setCurrentShift(shift);
+      .is("fin", null)
+      .in("estado", ["en_servicio", "break"])
+      .order("inicio", { ascending: false })
+      .limit(1);
+    setCurrentShift(currentShiftRows?.[0] ?? null);
 
-    // Get all active shifts with officer info
-    const { data: shifts } = await supabase
+    const { data: shifts } = await hqSupabase
       .from("officer_shifts")
       .select("*, officers(placa, rango, departamento, citizens(roblox_nickname, nombre, apellido_paterno))")
+      .is("fin", null)
       .in("estado", ["en_servicio", "break"])
       .order("inicio", { ascending: true });
     setActiveOfficers(shifts || []);
@@ -777,24 +811,57 @@ function ShiftPanel({ officer }: { officer: Officer }) {
   useEffect(() => { fetchData(); }, []);
 
   const startShift = async () => {
-    await supabase.from("officer_shifts").insert({ officer_id: officer.id, estado: "en_servicio" });
-    await supabase.from("officers").update({ en_servicio: true }).eq("id", officer.id);
+    if (currentShift) {
+      toast.info("Ya tienes un turno activo");
+      return;
+    }
+
+    const { error } = await hqSupabase.from("officer_shifts").insert({ officer_id: officer.id, estado: "en_servicio" });
+    if (error) {
+      toast.error(error.message);
+      return;
+    }
+
+    await hqSupabase.from("officers").update({ en_servicio: true }).eq("id", officer.id);
     fetchData();
     toast.success("Turno iniciado");
   };
 
   const takeBreak = async () => {
-    if (currentShift) {
-      await supabase.from("officer_shifts").update({ estado: "break" }).eq("id", currentShift.id);
+    if (currentShift && currentShift.estado !== "break") {
+      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "break" }).eq("id", currentShift.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
       fetchData();
       toast.info("En break");
     }
   };
 
+  const resumeShift = async () => {
+    if (currentShift && currentShift.estado === "break") {
+      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "en_servicio" }).eq("id", currentShift.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      fetchData();
+      toast.success("Turno reanudado");
+    }
+  };
+
   const endShift = async () => {
     if (currentShift) {
-      await supabase.from("officer_shifts").update({ estado: "finalizado", fin: new Date().toISOString() }).eq("id", currentShift.id);
-      await supabase.from("officers").update({ en_servicio: false }).eq("id", officer.id);
+      const { error } = await hqSupabase.from("officer_shifts").update({ estado: "finalizado", fin: new Date().toISOString() }).eq("id", currentShift.id);
+      if (error) {
+        toast.error(error.message);
+        return;
+      }
+
+      await hqSupabase.from("officers").update({ en_servicio: false }).eq("id", officer.id);
       fetchData();
       toast.success("Turno finalizado");
     }
@@ -816,13 +883,19 @@ function ShiftPanel({ officer }: { officer: Officer }) {
         {currentShift ? (
           <div className="space-y-3">
             <p className="text-sm text-slate-300">
-              En servicio desde: {new Date(currentShift.inicio).toLocaleTimeString("es-CL")}
+              {currentShift.estado === "break" ? "En break desde" : "En servicio desde"}: {new Date(currentShift.inicio).toLocaleTimeString("es-CL")}
               <span className="ml-2 text-emerald-400">({formatDuration(currentShift.inicio)})</span>
             </p>
             <div className="flex gap-2">
-              <Button variant="outline" onClick={takeBreak} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
-                <Coffee className="h-4 w-4 mr-1" /> Break
-              </Button>
+              {currentShift.estado === "break" ? (
+                <Button variant="outline" onClick={resumeShift} className="border-blue-500/30 text-blue-400 hover:bg-blue-500/10">
+                  <Play className="h-4 w-4 mr-1" /> Volver al servicio
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={takeBreak} className="border-amber-500/30 text-amber-400 hover:bg-amber-500/10">
+                  <Coffee className="h-4 w-4 mr-1" /> Break
+                </Button>
+              )}
               <Button variant="outline" onClick={endShift} className="border-red-500/30 text-red-400 hover:bg-red-500/10">
                 <Square className="h-4 w-4 mr-1" /> Terminar
               </Button>
@@ -881,7 +954,7 @@ function WantedPanel() {
   const [submitting, setSubmitting] = useState(false);
 
   const fetchWanted = async () => {
-    const { data } = await supabase
+    const { data } = await hqSupabase
       .from("wanted_list")
       .select("*, citizens(nombre, apellido_paterno, folio_dni, roblox_nickname)")
       .eq("activo", true)
@@ -895,7 +968,7 @@ function WantedPanel() {
   const searchCitizen = async () => {
     if (!citizenQuery.trim()) return;
     const q = citizenQuery.trim();
-    const { data } = await supabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
+    const { data } = await hqSupabase.from("citizens").select("id, nombre, apellido_paterno, folio_dni, roblox_nickname")
       .or(`folio_dni.ilike.%${q}%,roblox_nickname.ilike.%${q}%,nombre.ilike.%${q}%`);
     setCitizenResults(data || []);
   };
@@ -903,7 +976,7 @@ function WantedPanel() {
   const submit = async () => {
     if (!selectedCitizen || !razon) { toast.error("Completa todos los campos"); return; }
     setSubmitting(true);
-    const { error } = await supabase.from("wanted_list").insert({
+    const { error } = await hqSupabase.from("wanted_list").insert({
       citizen_id: selectedCitizen.id,
       razon,
       prioridad,
@@ -922,7 +995,7 @@ function WantedPanel() {
   };
 
   const removeWanted = async (id: string) => {
-    const { error } = await supabase.from("wanted_list").delete().eq("id", id);
+    const { error } = await hqSupabase.from("wanted_list").delete().eq("id", id);
     if (error) toast.error(error.message);
     else { fetchWanted(); toast.success("Alerta eliminada"); }
   };
