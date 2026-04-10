@@ -2,9 +2,23 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion } from "framer-motion";
 import { Shield, Loader2, AlertCircle } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "@/integrations/supabase/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+
+const hqSupabase = createClient<Database>(
+  import.meta.env.VITE_SUPABASE_URL,
+  import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+  {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+      detectSessionInUrl: false,
+      storageKey: "hq-login-anon",
+    },
+  },
+);
 
 export default function HQLogin() {
   const navigate = useNavigate();
@@ -20,7 +34,7 @@ export default function HQLogin() {
 
     try {
       // Find officer by placa
-      const { data: officer, error: fetchErr } = await supabase
+      const { data: officer, error: fetchErr } = await hqSupabase
         .from("officers")
         .select("*, citizens(*)")
         .eq("placa", placa.trim().toUpperCase())
